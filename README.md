@@ -26,16 +26,11 @@ Text("SwiftUI Shimmer").shimmering()
 ## Optional Parameters ⚙️
 
 - `active`: Convenience parameter to conditionally enable the effect. Defaults to `true`.
-- `animation`: A custom animation. Defaults to `Shimmer.defaultAnimation`.
+- `duration`: The duration of a shimmer cycle in seconds. Defaults to `1.5`.
+- `bounce`: Whether to bounce (reverse) the animation back and forth. Defaults to `false`.
+- `delay`: A delay in seconds. Defaults to `0.25`.
 - `gradient`: A custom gradient. Defaults to `Shimmer.defaultGradient`.
 - `bandSize`: The size of the animated mask's "band". Defaults to 0.2 unit points, which corresponds to 20% of the extent of the gradient.
-
-### Backward Compatible Parameters
-
-- `active`: Convenience parameter to conditionally enable the effect. Defaults to `true`.
-- `duration`: The duration of a shimmer cycle in seconds. Default: `1.5`.
-- `bounce`: Whether to bounce (reverse) the animation back and forth. Defaults to `false`.
-- `delay`: A delay in seconds. Defaults to `0`.
 
 ![Bounce 3](docs/bounce3.gif)
 

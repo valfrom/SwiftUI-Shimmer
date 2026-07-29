@@ -17,26 +17,53 @@ public struct Shimmer: ViewModifier {
         case background
     }
 
-    private let animation: Animation
+    private let animation: Animation?
+    private let duration: TimeInterval
+    private let delay: TimeInterval
+    private let bounce: Bool
     private let gradient: Gradient
     private let min, max: CGFloat
     private let mode: Mode
     @State private var isInitialState = true
+    @State private var startDate = Date()
     @Environment(\.layoutDirection) private var layoutDirection
 
-    /// Initializes his modifier with a custom animation,
+    /// Initializes the modifier.
     /// - Parameters:
-    ///   - animation: A custom animation. Defaults to ``Shimmer/defaultAnimation``.
+    ///   - duration: The duration of a shimmer cycle in seconds.
+    ///   - bounce: Whether to reverse the animation after each cycle.
+    ///   - delay: The delay before the animation starts.
     ///   - gradient: A custom gradient. Defaults to ``Shimmer/defaultGradient``.
     ///   - bandSize: The size of the animated mask's "band". Defaults to 0.3 unit points, which corresponds to
     /// 30% of the extent of the gradient.
     public init(
-        animation: Animation = Self.defaultAnimation,
+        duration: TimeInterval = 1.5,
+        bounce: Bool = false,
+        delay: TimeInterval = 0.25,
+        gradient: Gradient = Self.defaultGradient,
+        bandSize: CGFloat = 0.3,
+        mode: Mode = .mask
+    ) {
+        self.animation = nil
+        self.duration = duration
+        self.delay = delay
+        self.bounce = bounce
+        self.gradient = gradient
+        self.min = 0 - bandSize
+        self.max = 1 + bandSize
+        self.mode = mode
+    }
+
+    public init(
+        animation: Animation,
         gradient: Gradient = Self.defaultGradient,
         bandSize: CGFloat = 0.3,
         mode: Mode = .mask
     ) {
         self.animation = animation
+        self.duration = 1.5
+        self.delay = 0.25
+        self.bounce = false
         self.gradient = gradient
         // Calculate unit point dimensions beyond the gradient's edges by the band size
         self.min = 0 - bandSize
@@ -75,37 +102,67 @@ public struct Shimmer: ViewModifier {
      */
 
     /// The start unit point of our gradient, adjusting for layout direction.
-    var startPoint: UnitPoint {
+    func startPoint(progress: CGFloat) -> UnitPoint {
         if layoutDirection == .rightToLeft {
-            isInitialState ? UnitPoint(x: max, y: min) : UnitPoint(x: 0, y: 1)
+            return UnitPoint(x: max - max * progress, y: min + (1 - min) * progress)
         } else {
-            isInitialState ? UnitPoint(x: min, y: min) : UnitPoint(x: 1, y: 1)
+            return UnitPoint(x: min + (1 - min) * progress, y: min + (1 - min) * progress)
         }
     }
 
     /// The end unit point of our gradient, adjusting for layout direction.
-    var endPoint: UnitPoint {
+    func endPoint(progress: CGFloat) -> UnitPoint {
         if layoutDirection == .rightToLeft {
-            isInitialState ? UnitPoint(x: 1, y: 0) : UnitPoint(x: min, y: max)
+            return UnitPoint(x: 1 + (min - 1) * progress, y: max * progress)
         } else {
-            isInitialState ? UnitPoint(x: 0, y: 0) : UnitPoint(x: max, y: max)
+            return UnitPoint(x: max * progress, y: max * progress)
         }
     }
 
     public func body(content: Content) -> some View {
-        applyingGradient(to: content)
-            .animation(animation, value: isInitialState)
-            .onAppear {
-                // Delay the animation until the initial layout is established
-                // to prevent animating the appearance of the view
-                DispatchQueue.main.asyncAfter(deadline: .now()) {
-                    isInitialState = false
+        if let animation {
+            applyingGradient(to: content, progress: isInitialState ? 0 : 1)
+                .animation(animation, value: isInitialState)
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now()) {
+                        isInitialState = false
+                    }
                 }
+        } else if #available(iOS 15.0, macOS 12.0, tvOS 15.0, watchOS 8.0, *) {
+            TimelineView(.animation(minimumInterval: 1 / 60)) { context in
+                applyingGradient(to: content, progress: progress(at: context.date))
             }
+        } else {
+            applyingGradient(to: content, progress: isInitialState ? 0 : 1)
+                .animation(Self.defaultAnimation, value: isInitialState)
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now()) {
+                        isInitialState = false
+                    }
+                }
+        }
+    }
+
+    func progress(at date: Date) -> CGFloat {
+        guard duration > 0 else {
+            return 1
+        }
+        let elapsed = Swift.max(0, date.timeIntervalSince(startDate) - delay)
+        let cycleDuration = bounce ? duration * 2 : duration
+        let cycleProgress = elapsed.truncatingRemainder(dividingBy: cycleDuration) / duration
+        return CGFloat(cycleProgress > 1 ? 2 - cycleProgress : cycleProgress)
     }
 
     @ViewBuilder public func applyingGradient(to content: Content) -> some View {
-        let gradient = LinearGradient(gradient: gradient, startPoint: startPoint, endPoint: endPoint)
+        applyingGradient(to: content, progress: isInitialState ? 0 : 1)
+    }
+
+    @ViewBuilder public func applyingGradient(to content: Content, progress: CGFloat) -> some View {
+        let gradient = LinearGradient(
+            gradient: gradient,
+            startPoint: startPoint(progress: progress),
+            endPoint: endPoint(progress: progress)
+        )
         switch mode {
         case .mask:
             content.mask(gradient)
@@ -121,13 +178,40 @@ public extension View {
     /// Adds an animated shimmering effect to any view, typically to show that an operation is in progress.
     /// - Parameters:
     ///   - active: Convenience parameter to conditionally enable the effect. Defaults to `true`.
-    ///   - animation: A custom animation. Defaults to ``Shimmer/defaultAnimation``.
+    ///   - duration: The duration of a shimmer cycle in seconds.
+    ///   - bounce: Whether to reverse the animation after each cycle.
+    ///   - delay: The delay before the animation starts.
     ///   - gradient: A custom gradient. Defaults to ``Shimmer/defaultGradient``.
     ///   - bandSize: The size of the animated mask's "band". Defaults to 0.3 unit points, which corresponds to
     /// 20% of the extent of the gradient.
     @ViewBuilder func shimmering(
         active: Bool = true,
-        animation: Animation = Shimmer.defaultAnimation,
+        duration: TimeInterval = 1.5,
+        bounce: Bool = false,
+        delay: TimeInterval = 0.25,
+        gradient: Gradient = Shimmer.defaultGradient,
+        bandSize: CGFloat = 0.3,
+        mode: Shimmer.Mode = .mask
+    ) -> some View {
+        if active {
+            modifier(
+                Shimmer(
+                    duration: duration,
+                    bounce: bounce,
+                    delay: delay,
+                    gradient: gradient,
+                    bandSize: bandSize,
+                    mode: mode
+                )
+            )
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder func shimmering(
+        active: Bool = true,
+        animation: Animation,
         gradient: Gradient = Shimmer.defaultGradient,
         bandSize: CGFloat = 0.3,
         mode: Shimmer.Mode = .mask
@@ -139,21 +223,6 @@ public extension View {
         }
     }
 
-    /// Adds an animated shimmering effect to any view, typically to show that an operation is in progress.
-    /// - Parameters:
-    ///   - active: Convenience parameter to conditionally enable the effect. Defaults to `true`.
-    ///   - duration: The duration of a shimmer cycle in seconds.
-    ///   - bounce: Whether to bounce (reverse) the animation back and forth. Defaults to `false`.
-    ///   - delay:A delay in seconds. Defaults to `0.25`.
-    @available(*, deprecated, message: "Use shimmering(active:animation:gradient:bandSize:) instead.")
-    @ViewBuilder func shimmering(
-        active: Bool = true, duration: Double, bounce: Bool = false, delay: Double = 0.25
-    ) -> some View {
-        shimmering(
-            active: active,
-            animation: .linear(duration: duration).delay(delay).repeatForever(autoreverses: bounce)
-        )
-    }
 }
 
 #if DEBUG

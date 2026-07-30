@@ -147,10 +147,20 @@ public struct Shimmer: ViewModifier {
         guard duration > 0 else {
             return 1
         }
-        let elapsed = Swift.max(0, date.timeIntervalSince(startDate) - delay)
-        let cycleDuration = bounce ? duration * 2 : duration
-        let cycleProgress = elapsed.truncatingRemainder(dividingBy: cycleDuration) / duration
-        return CGFloat(cycleProgress > 1 ? 2 - cycleProgress : cycleProgress)
+        let elapsed = Swift.max(0, date.timeIntervalSince(startDate))
+        let pauseDuration = Swift.max(0, delay)
+        let animationDuration = pauseDuration + duration
+        let cycleDuration = bounce ? animationDuration * 2 : animationDuration
+        let cycleTime = elapsed.truncatingRemainder(dividingBy: cycleDuration)
+        guard cycleTime >= pauseDuration else {
+            return 0
+        }
+        let forwardProgress = (cycleTime - pauseDuration) / duration
+        guard bounce, forwardProgress > 1 else {
+            return CGFloat(forwardProgress)
+        }
+        let reverseProgress = (cycleTime - animationDuration) / duration
+        return CGFloat(Swift.max(0, 1 - reverseProgress))
     }
 
     @ViewBuilder public func applyingGradient(to content: Content) -> some View {
